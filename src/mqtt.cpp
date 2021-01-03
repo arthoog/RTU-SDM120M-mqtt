@@ -3,10 +3,11 @@
 //MQTT stuff
 //=============================================================================
 
-const char* mqtt_server = "192.168.1.40"; //elite";
+//const char* mqtt_server = "192.168.1.40"; //elite";
 const char* mqtt_username = "";
 const char* mqtt_password = "";
-const char* mqtt_topic = "SDM120M/#";
+// const char* mqtt_topic = "SDM120M/#";
+const char* mqtt__topic;
 unsigned long ChipID;
 
 extern WiFiClient espClient;
@@ -23,14 +24,15 @@ char vorig[20][40];
 void mqtt_setup()
 {
   Serial.println("#SDM120MmqttOTA");
-  Serial << "#mqttserver=" << mqtt_server << endl;
-  ChipID = ESP.getChipId();
+//   Serial << "#mqttserver=" << mqtt_server << endl;
+//   ChipID = ESP.getChipId();
 }
-void mqtt_setup2()
+void mqtt_setup2(const char* mqtt_server, const char* topic)
 {
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
-  reconnect();
+    mqtt__topic = topic; //pointer copy
+    client.setServer(mqtt_server, 1883);
+    client.setCallback(callback);
+    reconnect();
 }
 
 void mqtt_loop(void)
@@ -66,7 +68,7 @@ void reconnect()
     if (client.connect("SDM120M", mqtt_username, mqtt_password)) 
       {
       Serial.println("#connected");
-      if (client.subscribe(mqtt_topic)) Serial << "#abbo op " << mqtt_topic << endl;
+      if (client.subscribe(mqtt__topic)) Serial << "#abbo op " << mqtt__topic << endl;
       else Serial.println("#abbo mislukt");
       } 
     else 
@@ -80,10 +82,11 @@ void reconnect()
     }
   if (client.connected()) 
     {
-    byte strCID[10]; 
-    itoa(ChipID,(char*)strCID,16);
+    char strCID[10]; 
+    itoa(ChipID, strCID,16);
     //TODO
-    client.publish("SDM120M/ChipID", strCID, strlen((char*)strCID), true);
+    // client.publish("SDM120M/ChipID", strCID, strlen((char*)strCID), true);
+    pub("ChipID", strCID);
     }
   }
 
@@ -151,7 +154,7 @@ void callback(char* topic, byte* payload, unsigned int payloadlen) {
 }
 
 //jammer dat ik EN itemnr EN topic moet opgeven. zou dict moeten hebben
-void pubifchanged(int itemnr, char* topic, char* waarde)
+void pubifchanged(int itemnr, const char* topic, const char* waarde)
 {
   if (strcmp(waarde, vorig[itemnr])) // !=0 => verschil
   {
@@ -160,13 +163,12 @@ void pubifchanged(int itemnr, char* topic, char* waarde)
   }
 }
 
-void pubifchanged(int itemnr, char* topic, String waarde)
+void pubifchanged(int itemnr, const char* topic, String waarde)
 {
   //if (strcmp(waarde, vorig[itemnr])) // !=0 => verschil
   if (waarde != String(vorig[itemnr]))
   {
     pub(topic, waarde);
-    //strcpy(vorig[itemnr], waarde);
     waarde.toCharArray(vorig[itemnr],40);
   }
 }
@@ -177,29 +179,22 @@ void pubifchanged(int itemnr, String topic, String waarde)
   if (waarde != String(vorig[itemnr]))
   {
     pub(topic, waarde);
-    //strcpy(vorig[itemnr], waarde);
     waarde.toCharArray(vorig[itemnr],40);
   }
 }
 
-void pub(char* topic, char* waarde, unsigned int plength)
+void pub(const char* topic, const char* waarde, unsigned int plength)
 {
   char topicPlus[40] = "SDM120M/";
   strcat(topicPlus,topic);
   client.publish(/*(const char*)*/topicPlus, (const uint8_t*)waarde, plength, true);
 }
 
-void pub(char* topic, char* waarde)
+void pub(const char* topic, const char* waarde)
   {
-  //Serial << "PUB:" << topic << '\t' << waarde << endl;
   char topicPlus[40] = "SDM120M/";
   strcat(topicPlus,topic);
-  //char strtopic[40];  
-  //topicPlus.toCharArray(strtopic,40);
-  //char strwaarde[40];  
-  //waarde.toCharArray(strwaarde,40);
   client.publish(/*(const char*)*/topicPlus, /*(const uint8_t*)*/waarde, /*strlen(strwaarde),*/ true);
-  //Serial << "PUB:" << strtopic << '\t' << strwaarde << endl;
   }
 
 void pub(String topic, String waarde)

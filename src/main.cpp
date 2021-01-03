@@ -23,10 +23,10 @@
 //DallasTemperature sensors(&oneWire);
 
 //===============================================================
-// const char* mqtt_server = "192.168.1.40"; //elite";
+ const char* mqtt_server = "192.168.1.40"; //elite";
 // const char* mqtt_username = "";
 // const char* mqtt_password = "";
-// const char* mqtt_topic = "SDM120M/#";
+const char* mqtt_topic = "SDM120M/#";
 // unsigned long ChipID;
 
 // char vorig[20][40];
@@ -65,7 +65,8 @@ bool coils[20];
 uint16_t regs[16];
 
 //===============================================================
-bool cbWrite(Modbus::ResultCode event, uint16_t transactionId, void* data) {
+bool cbWrite(Modbus::ResultCode event, uint16_t transactionId, void* data) 
+{
 #ifdef ESP8266
   Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
 #elif ESP32
@@ -78,7 +79,8 @@ bool cbWrite(Modbus::ResultCode event, uint16_t transactionId, void* data) {
 }
 
 //---------------------------------------------------------------
-bool cbWrIreg(Modbus::ResultCode event, uint16_t transactionId, void* data) {
+bool cbWrIreg(Modbus::ResultCode event, uint16_t transactionId, void* data) 
+{
   //Serial.print(regs[0],HEX);
   //Serial.print(regs[1],HEX);
   //Serial.print(" ");
@@ -101,14 +103,16 @@ bool cbWrIreg(Modbus::ResultCode event, uint16_t transactionId, void* data) {
 }
 
 //---------------------------------------------------------------
-bool cbWriteHregPW(Modbus::ResultCode event, uint16_t transactionId, void* data) {
+bool cbWriteHregPW(Modbus::ResultCode event, uint16_t transactionId, void* data) 
+{
   Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
   bezig = false;
   return true;
 }
 
 //---------------------------------------------------------------
-float floatfromregs() {
+float floatfromregs() 
+{
   uint16_t regsrev[2];
   regsrev[0] = regs[1];
   regsrev[1] = regs[0];
@@ -116,102 +120,110 @@ float floatfromregs() {
 }
 
 //---------------------------------------------------------------
-void initregsfromfloat(float y) {
-  uint16_t regsrev[2];
-  //float y = 100;
-  *(float*)regsrev = y;
-  regs[0] = regsrev[1];
-  regs[1] = regsrev[0];
+void initregsfromfloat(float y) 
+{
+    uint16_t regsrev[2];
+    //float y = 100;
+    *(float*)regsrev = y;
+    regs[0] = regsrev[1];
+    regs[1] = regsrev[0];
 }
 
 //===============================================================
 unsigned long millisslotschaduw = 0xffffffff;
 // signed long nextpoll = 0;
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Booting");
+void setup() 
+{
+    Serial.begin(115200);
+    Serial.println("Booting");
 
-  //Wifi spul
-  WiFi.mode(WIFI_STA);
+    //Wifi spul
+    WiFi.mode(WIFI_STA);
 
-  // Serial.println("#SDM120MmqttOTA");
-  // Serial << "#mqttserver=" << mqtt_server << endl;
-  // ChipID = ESP.getChipId();
-  mqtt_setup();
-  setCallback(mqtt_callback);
+    // Serial.println("#SDM120MmqttOTA");
+    // Serial << "#mqttserver=" << mqtt_server << endl;
+    // ChipID = ESP.getChipId();
+    mqtt_setup();
+    setCallback(mqtt_callback);
 
-  // We start by connecting to a WiFi network
-  Serial.println();
-  /*if (dbg)*/ Serial.print("#Connecting to ");
-  /*if (dbg)*/ Serial.print(ssid);
+    // We start by connecting to a WiFi network
+    Serial.println();
+    /*if (dbg)*/ Serial.print("#Connecting to ");
+    /*if (dbg)*/ Serial.print(ssid);
 
-  WiFi.begin(ssid, password);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("Connection Failed! Rebooting...");
-    delay(10000);
-    ESP.restart();
-  }
+    WiFi.begin(ssid, password);
+    while (WiFi.waitForConnectResult() != WL_CONNECTED) 
+    {
+        Serial.println("Connection Failed! Rebooting...");
+        delay(10000);
+        ESP.restart();
+    }
 
-  //OTA spul
-  // Port defaults to 8266
-  // ArduinoOTA.setPort(8266);
+    //OTA spul
+    // Port defaults to 8266
+    // ArduinoOTA.setPort(8266);
 
-  // Hostname defaults to esp8266-[ChipID]
-  ArduinoOTA.setHostname("SDM120M");
+    // Hostname defaults to esp8266-[ChipID]
+    ArduinoOTA.setHostname("SDM120M");
 
-  // No authentication by default
-  //ArduinoOTA.setPassword((const char *)"geheim");
+    // No authentication by default
+    //ArduinoOTA.setPassword((const char *)"geheim");
 
-  ArduinoOTA.onStart([]() {
-    Serial.println("Start");
-  });
-  ArduinoOTA.onEnd([]() {
+    ArduinoOTA.onStart([]() 
+    {
+        Serial.println("Start");
+    });
+    ArduinoOTA.onEnd([]() {
     Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
-  });
-  ArduinoOTA.begin();
-  Serial.println("Ready");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) 
+    {
+        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    });
+    ArduinoOTA.onError([](ota_error_t error) 
+    {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+    ArduinoOTA.begin();
+    Serial.println("Ready");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
 
-  //onewire
-  //sensors.begin(); 
+    //onewire
+    //sensors.begin(); 
 
-  //MQTT spul
-  mqtt_setup2();
-   
-  //digitalWrite(RELAIS,HIGH); //uit?
+    //MQTT spul
+    Serial << "#mqttserver=" << mqtt_server << endl;
+    mqtt_setup2(mqtt_server, mqtt_topic);
 
-  //Modbus spul
- #if defined(ESP8266)
-  S.begin(2400, SWSERIAL_8N1);
-  //mb.begin(&S);
-  mb.begin(&S, /*pen 2 voor transmit enable*/ 2, /*direct*/true);
- #elif defined(ESP32)
-  Serial1.begin(2400, SERIAL_8N1);
-  mb.begin(&Serial1);
- #else
-  Serial1.begin(2400, SERIAL_8N1);
-  mb.begin(&Serial1);
-  mb.setBaudrate(2400);
- #endif
-  mb.master();
+    //digitalWrite(RELAIS,HIGH); //uit?
 
-  // nextpoll = (signed long)millis()+interval;
+    //Modbus spul
+    #if defined(ESP8266)
+    S.begin(2400, SWSERIAL_8N1);
+    //mb.begin(&S);
+    mb.begin(&S, /*pen 2 voor transmit enable*/ 2, /*direct*/true);
+    #elif defined(ESP32)
+    Serial1.begin(2400, SERIAL_8N1);
+    mb.begin(&Serial1);
+    #else
+    Serial1.begin(2400, SERIAL_8N1);
+    mb.begin(&Serial1);
+    mb.setBaudrate(2400);
+    #endif
+    mb.master();
+
+    // nextpoll = (signed long)millis()+interval;
 }
 
 //---------------------------------------------------------------
-void loop() {
+void loop() 
+{
   ArduinoOTA.handle();
 
   mqtt_loop();
@@ -325,25 +337,25 @@ void loop() {
 
 void mqtt_callback(char* topic, char* strpayload)
     {     
-      bool dbg = false;
-      if (dbg) Serial << millis() << "\tMQTTCB:" << topic << "=" << strpayload << endl;
-      int intWaarde = atoi(strpayload);
-        if (strcmp(topic,"cmd/setRelaisPB") == 0) 
+    bool dbg = false;
+    if (dbg) Serial << millis() << "\tMQTTCB:" << topic << "=" << strpayload << endl;
+    int intWaarde = atoi(strpayload);
+    if (strcmp(topic,"cmd/setRelaisPB") == 0) 
         {
-            Serial << "MQTT:" << topic << "=" << intWaarde << endl;
-            setRelaisPB = intWaarde;
+        Serial << "MQTT:" << topic << "=" << intWaarde << endl;
+        setRelaisPB = intWaarde;
         }
         
-        if (strcmp(topic,"cmd/interval") == 0) 
+    if (strcmp(topic,"cmd/interval") == 0) 
         {
-            Serial << "MQTT:" << topic << "=" << intWaarde << endl;
-            interval = intWaarde;
-            if (interval < 0) interval = 0;
+        Serial << "MQTT:" << topic << "=" << intWaarde << endl;
+        interval = intWaarde;
+        if (interval < 0) interval = 0;
         }
         
-        if (strcmp(topic,"cmd/aktief") == 0) 
+    if (strcmp(topic,"cmd/aktief") == 0) 
         {
-            Serial << "MQTT:" << topic << "=" << intWaarde << endl;
-            aktief = intWaarde;
+        Serial << "MQTT:" << topic << "=" << intWaarde << endl;
+        aktief = intWaarde;
         }
     }
