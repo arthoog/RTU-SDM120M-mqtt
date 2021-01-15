@@ -5,44 +5,19 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include "AP-elfjes.h"
-
 #include "mqtt.h"
-// #include <PubSubClient.h>
-
 #include <Streaming.h>
 #include <string.h>
-
-//#include <OneWire.h> 
-//#include <DallasTemperature.h>
-
-//#define ONE_WIRE_BUS 14
-//#define LED 2 //wemos d1 //13
-//#define RELAIS 12
-
-//OneWire oneWire(ONE_WIRE_BUS); 
-//DallasTemperature sensors(&oneWire);
+#include <dictionary.h> //inlined version
+#include <cppQueue.h>
 
 //===============================================================
- const char* mqtt_server = "192.168.1.40"; //elite";
-// const char* mqtt_username = "";
-// const char* mqtt_password = "";
-const char* mqtt_topic = "SDM120M/#";
-// unsigned long ChipID;
-
-// char vorig[20][40];
+const char* mqtt_server = "192.168.1.40"; //elite";
 
 boolean dbg = false;
-//byte  ch1 = 0;
 byte  aktief = 1;
-long interval = 10000;
-//char* command[40];
-int setRelaisPB = -1;
-// int mqttreconnects = 0;
-//long sched = 1000;
-//float setpoint = 21.0;
-
-WiFiClient espClient;
-// PubSubClient client(espClient);
+long pollInterval = 10000;
+bool goCycle=false;
 
 //===============================================================
 #include <ModbusRTU.h>
@@ -58,56 +33,122 @@ WiFiClient espClient;
 #include "main.h"
 //===============================================================
 ModbusRTU mb;
-bool bezig = false;
-int stap = 0;
+bool bezig      = false;
+u8 adr          = 1; //huidig MBadres
 
-bool coils[20];
-uint16_t regs[16];
+int devnr       = -1;
+String devNaam  = "";
+int devAdres    = -1; //16 bit, u8 nodig maar dan is -1 = ongeldig
 
-//===============================================================
-bool cbWrite(Modbus::ResultCode event, uint16_t transactionId, void* data) 
-{
-#ifdef ESP8266
-  Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
-#elif ESP32
-  Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
-#else
-  Serial.print("Request result: 0x");
-  Serial.print(event, HEX);
-#endif
-  return true;
-}
+int stap        = 0;
+int mberror     = 0;
+
+int wrRelaisPB  = -1;
+
+//bool coils[20];
+uint16_t regs[16]; //er worden er maar 2 gebruikt
+
+// //===============================================================
+// bool cbWrite(Modbus::ResultCode event, uint16_t transactionId, void* data) 
+// {
+// #ifdef ESP8266
+//   Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
+// #elif ESP32
+//   Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
+// #else
+//   Serial.print("Request result: 0x");
+//   Serial.print(event, HEX);
+// #endif
+//   return true;
+// }
+
+//---------------------------------------------------------------
+typedef struct strRec {
+	// uint16_t	mbAdr;      //modbusadres
+    // char        type;       // 'I'=inputregister 'H'=holdingregister
+    // long        adres;
+    // char        datatype;   // van het adres. F=float32 'I'=int16
+	float	    waarde;     //
+    String      Naam;
+    String      Rest;
+} wrQueueRec;
+
+cppQueue	wrqueue(sizeof(wrQueueRec), 10, FIFO);	// Instantiate queue
+
+wrQueueRec writerec;
+
+//---------------------------------------------------------------
+typedef struct {
+    char type; //bank, 
+    long adres;
+    char datatype; //F=float
+    int decimalen;
+    String naam;
+    // long interval;
+} SDM120M ;
+
+SDM120M dataray[] = 
+{   {'I', 0x00, 'F', 1, "Spanning"}      // 0
+,   {'I', 0x06, 'F', 1 ,"Stroom"}        // 1
+,   {'I', 0x0c, 'F', 1, "Vermogen"}      // 2
+,   {'I', 0x12, 'F', 1, "SchijnVerm"}    // 3
+,   {'I', 0x18, 'F', 1, "BlindVerm"}     // 4
+,   {'I', 0x1e, 'F', 2, "CosPhi"}        // 5
+,   {'I', 0x46, 'F', 3, "Frequentie"}    // 6
+,   {'I', 0x48, 'F', 3, "kWhToelev"}     // 7
+,   {'I', 0x4a, 'F', 3, "kWhTeruglev"}   // 8
+,   {'H', 0x0c, 'F', 0, "RelaisPB"}      // 9
+,   {'H', 0x14, 'F', 0, "mom/adr"}       //10   MeterID
+,   {'-', 0x00, ' ', 1, ""}              // End of data
+};
+
+// set/.. is een algemene setting. later */set/# of all/set/#
+// wr/.. is een schrijfcommando. transient. wordt weer verwijderd. later */wr/#
+// SDM120M/<naam>/wr/adr commando om adres te wijzigen (en gebruik adres= SDM120M/<naam>/mom/adr) als gelukt schrijf ../mom/adr
+// SDM120M/*/set/interval
+// SDM120M/<naam>/wr/adr    
+
+Dictionary &devadrs = *(new Dictionary(20));
+Dictionary &devsettings = *(new Dictionary(20));
 
 //---------------------------------------------------------------
 bool cbWrIreg(Modbus::ResultCode event, uint16_t transactionId, void* data) 
-{
-  //Serial.print(regs[0],HEX);
-  //Serial.print(regs[1],HEX);
-  //Serial.print(" ");
+    {
+    //Serial.print(regs[0],HEX);
+    //Serial.print(regs[1],HEX);
+    //Serial.print(" ");
 
-  //if (stap ==  1) pub("Spanning",     String(floatfromregs(),1));
-  if (stap ==  1) pubifchanged(stap, (char*)"Spanning",     String(floatfromregs(),1));
-  if (stap ==  2) pubifchanged(stap, (char*)"Stroom",       String(floatfromregs(),1));
-  if (stap ==  3) pubifchanged(stap, (char*)"Vermogen",     String(floatfromregs(),1));
-  if (stap ==  4) pubifchanged(stap, (char*)"SchijnVerm",   String(floatfromregs(),1));
-  if (stap ==  5) pubifchanged(stap, (char*)"BlindVerm",    String(floatfromregs(),1));
-  if (stap ==  6) pubifchanged(stap, (char*)"CosPhi",       String(floatfromregs(),2));
-  if (stap ==  7) pubifchanged(stap, (char*)"Frequentie",   String(floatfromregs(),3));
-  if (stap ==  8) pubifchanged(stap, (char*)"kWhToelev",    String(floatfromregs(),3));
-  if (stap ==  9) pubifchanged(stap, (char*)"kWhTeruglev",  String(floatfromregs(),3));
-  if (stap == 10) pubifchanged(stap, (char*)"RelaisPB",     String(floatfromregs(),0));
-  if (stap == 11) pubifchanged(stap, (char*)"MeterID",      String(floatfromregs(),0));
+    if (event != 0) //Serial.printf_P("Request result: 0x%02X, Mem: %d\r\n", event, ESP.getFreeHeap());
+    {
+       Serial << millis() << "\tRequest result: 0x" << event << " Mem: " << ESP.getFreeHeap() << endl;
+       //delay voor herstel modbus
+        mberror++;
+        // stap--;
+        // delay(1000); //modbus een seconde rust geven.
+        delay(100);
+    }
+    else //TODO nu alleen nog maar Floats
+    {
+        SDM120M dat = dataray[stap-1];
+        pubifchanged(devNaam + "/" + dat.naam, String(floatfromregs(),dat.decimalen));
+    }
 
-  bezig = false;
-  return true;
-}
+    bezig = false;
+    return true;
+    }
 
 //---------------------------------------------------------------
 bool cbWriteHregPW(Modbus::ResultCode event, uint16_t transactionId, void* data) 
 {
-  Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
-  bezig = false;
-  return true;
+    // Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
+    Serial << millis() << "\t>>>>>>>>>cbWriteHreg result: 0x" << event << " Mem: " << ESP.getFreeHeap() << endl;
+    bezig = false;
+    int16_t waarde = writerec.waarde;
+    if (event==0) 
+        if (writerec.Rest == "wr/adr")
+            devadrs(writerec.Naam, String(waarde));
+            //ook pub "mom/adr" ?
+    return true;
 }
 
 //---------------------------------------------------------------
@@ -136,20 +177,11 @@ void setup()
 {
     Serial.begin(115200);
     Serial.println("Booting");
-
     //Wifi spul
     WiFi.mode(WIFI_STA);
-
-    // Serial.println("#SDM120MmqttOTA");
-    // Serial << "#mqttserver=" << mqtt_server << endl;
-    // ChipID = ESP.getChipId();
-    mqtt_setup();
-    setCallback(mqtt_callback);
-
-    // We start by connecting to a WiFi network
     Serial.println();
-    /*if (dbg)*/ Serial.print("#Connecting to ");
-    /*if (dbg)*/ Serial.print(ssid);
+    Serial.print("#Connecting to ");
+    Serial.print(ssid);
 
     WiFi.begin(ssid, password);
     while (WiFi.waitForConnectResult() != WL_CONNECTED) 
@@ -158,26 +190,18 @@ void setup()
         delay(10000);
         ESP.restart();
     }
+    Serial.println("Ready");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
 
     //OTA spul
-    // Port defaults to 8266
-    // ArduinoOTA.setPort(8266);
-
-    // Hostname defaults to esp8266-[ChipID]
-    ArduinoOTA.setHostname("SDM120M");
-
-    // No authentication by default
-    //ArduinoOTA.setPassword((const char *)"geheim");
-
-    ArduinoOTA.onStart([]() 
-    {
-        Serial.println("Start");
-    });
-    ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-    });
+    // ArduinoOTA.setPort(8266);                        // Port defaults to 8266
+    ArduinoOTA.setHostname("SDM120M");                  // Hostname defaults to esp8266-[ChipID]
+    //ArduinoOTA.setPassword((const char *)"geheim");   // No authentication by default
+    ArduinoOTA.onStart([]() { Serial.println("Start"); });
+    ArduinoOTA.onEnd([]()   { Serial.println("\nEnd"); });
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) 
-    {
+    { 
         Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
     });
     ArduinoOTA.onError([](ota_error_t error) 
@@ -190,16 +214,11 @@ void setup()
         else if (error == OTA_END_ERROR) Serial.println("End Failed");
     });
     ArduinoOTA.begin();
-    Serial.println("Ready");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-
-    //onewire
-    //sensors.begin(); 
 
     //MQTT spul
     Serial << "#mqttserver=" << mqtt_server << endl;
-    mqtt_setup2(mqtt_server, mqtt_topic);
+    setCallback(mqtt_callback);
+    mqtt_setup(mqtt_server, /*user*/ "", /*passw*/ "", "SDM120M", "SDM120M/#");
 
     //digitalWrite(RELAIS,HIGH); //uit?
 
@@ -218,17 +237,17 @@ void setup()
     #endif
     mb.master();
 
-    // nextpoll = (signed long)millis()+interval;
+    // nextpoll = (signed long)millis()+pollInterval;
 }
 
 //---------------------------------------------------------------
 void loop() 
 {
-  ArduinoOTA.handle();
+    ArduinoOTA.handle();
 
-  mqtt_loop();
+    mqtt_loop();
 
-  //Modbus spul
+//Modbus spul
 
 //30001 Voltage Volts Float 00 00
 //30007 Current Amps Float 00 06
@@ -248,114 +267,270 @@ void loop()
 //uint16_t ModbusRTU::writeHreg(uint8_t slaveId, uint16_t offset, uint16_t* value, uint16_t numregs, cbTransaction cb)        mb.readCoil(1, 1, coils, 20, cbWrite);
 
   // Serial << millis() << "\tstap=" << stap << "\tbezig=" << bezig << endl; 
-  unsigned long millisslot = millis()/(interval); //2sec slot
-  if (millisslot != millisslotschaduw)
-  {
-    // pas als klaar met cyclus millisslotschaduw = millisslot;
 
+    // gaat naat poll_MB()
     if (!bezig && !mb.slave())
     {
-        if (setRelaisPB >=0)
+        if (false && mberror<3 && wrRelaisPB >=0)
         {
             //40013 Relay Pulse Width Float 00 0C
             bezig = true;
-            initregsfromfloat(float(setRelaisPB));
-            Serial << "setRelaisPB: " << floatfromregs() << endl;
-            mb.writeHreg(1, 0x0c, regs, 2, cbWriteHregPW);
+            initregsfromfloat(float(wrRelaisPB));
+            Serial << "wrRelaisPB: " << floatfromregs() << endl;
+            mb.writeHreg(adr, 0x0c, regs, 2, cbWriteHregPW);
             //bezig = false;
-            setRelaisPB = -1;
-            pub((char*)"cmd/setRelaisPB",(char*)""); //wis topic
+            wrRelaisPB = -1;
+            pub((char*)"cmd/wrRelaisPB",(char*)""); //wis topic
+        }
+
+        if (!wrqueue.isEmpty() && mberror<3)
+        {
+            // wrQueueRec writerec;
+            if (wrqueue.pop(&writerec))
+            {   //devadrs[naam].toInt(), 'H', 0x0c, 'F',
+                int16_t adr = devadrs[writerec.Naam].toInt();
+
+                Serial << millis() << "\tPOP: " << "\tnaam:" << writerec.Naam << "\trest:" << writerec.Rest << "waarde:" << writerec.waarde << endl;
+
+                if (writerec.Rest.equals("wr/adr")) //equalsIgnoreCase()?
+                    {
+                    int16_t waarde = writerec.waarde;
+                    if (waarde > 1 && waarde < 240)
+                        {
+                        initregsfromfloat(writerec.waarde);
+                        mb.writeHreg(adr, 0x14, regs, 2, cbWriteHregPW);
+                        bezig = true;
+                        pub(writerec.Naam + "/" + writerec.Rest, (char*)""); //wis topic //eigenlijk in callback
+                        }
+                    }
+                if (writerec.Rest.equals("wr/RelaisPB")) //equalsIgnoreCase()?
+                    {
+                    initregsfromfloat(writerec.waarde);
+                    mb.writeHreg(adr, 0x0c, regs, 2, cbWriteHregPW);
+                    bezig = true;
+                    pub(writerec.Naam + "/" + writerec.Rest, (char*)""); //wis topic //eigenlijk in callback
+                    }
+            }
+        }
+        unsigned long millisslot = millis()/(pollInterval); //10sec slot
+        if (millisslot != millisslotschaduw)
+        {
+            goCycle = true;
+            millisslotschaduw = millisslot;
+        }
+
+        if (goCycle)
+        {
+            // pas als klaar met cyclus millisslotschaduw = millisslot;
+
+            if (false)
+            {
+                bezig = true; //op voorhand
+                switch (++stap)
+                {
+                    // case 0:
+                    //   break;
+                    case 1:
+                    //30001 Voltage Volts Float 00 00
+                    mb.readIreg(adr, 0x00, regs, 2, cbWrIreg); 
+                    break;
+                    case 2:
+                    //30007 Current Amps Float 00 06
+                    mb.readIreg(adr, 0x06, regs, 2, cbWrIreg); 
+                    break;
+                    case 3:
+                    //30013 Active power Watts Float 00 0C
+                    mb.readIreg(adr, 0x0c, regs, 2, cbWrIreg); 
+                    break;
+                    case 4:
+                    //30019 Apparent power VA Float 00 12
+                    mb.readIreg(adr, 0x12, regs, 2, cbWrIreg); 
+                    break;
+                    case 5:
+                    //30025 Reactive power VAr Float 00 18
+                    mb.readIreg(adr, 0x18, regs, 2, cbWrIreg); 
+                    break;
+                    case 6:
+                    //30031 Power factor None Float 00 1E
+                    mb.readIreg(adr, 0x1E, regs, 2, cbWrIreg); 
+                    break;
+                    case 7:
+                    //30071 Frequency Hz Float 00 46
+                    mb.readIreg(adr, 0x46, regs, 2, cbWrIreg);
+                    break; 
+                    case 8:
+                    //30073 Import active energy kWh Float 00 48
+                    mb.readIreg(adr, 0x48, regs, 2, cbWrIreg);
+                    break; 
+                    case 9:
+                    //30075 Export active energy kWh Float 00 4a
+                    mb.readIreg(adr, 0x4a, regs, 2, cbWrIreg);
+                    break; 
+                    case 10:
+                    //40013 Relay Pulse Width Float 00 0C
+                    mb.readHreg(adr, 0x0c, regs, 2, cbWrIreg);
+                    break; 
+                    case 11:
+                    //40021 Meter ID Float 00 14
+                    mb.readHreg(adr, 0x14, regs, 2, cbWrIreg);
+                    break; 
+                    default:
+                    bezig = false; //toch niet
+                    if (stap>20) 
+                    {
+                        stap = 0; 
+                        millisslotschaduw = millisslot; //klaar met dit tijdslot. zodra weer ongelijk de volgende
+                    }
+                }
+            }
+            else if (false && mberror>=3) //of dit gelijk doen. dan moet op beide plaatsen millisslot gelijk bepaald worden. of globaal.
+            {
+                mberror=0;
+                stap = 0; 
+                millisslotschaduw = millisslot; //klaar met dit tijdslot. zodra weer ongelijk de volgende
+            }
+            else if (devadrs.count()>0) //we hebben minimaal een device
+            {
+                if ((mberror>0)||(devAdres<0)||(devnr<0)) //ongeldig
+                {
+                    mberror = 0;
+                    devnr++;
+                    stap=0;
+                    if (devnr>= devadrs.count()) 
+                    {
+                        devnr=-1; 
+                        devAdres=-1;
+                        goCycle = false;
+                        devNaam = "";
+                        // millisslotschaduw = millisslot; //klaar cyclus alle devices. klaar met dit tijdslot. zodra weer ongelijk de volgende
+                    }
+                    else
+                    {
+                        devNaam = devadrs(devnr); //geeft key
+                        String devAdr = devadrs[devnr]; //geeft value
+                        int t = devAdr.toInt();
+
+                        //hier nog check op devAdr? Yep
+                        if (t>0 && t<248) //geldig
+                        {
+                            devAdres = devAdr.toInt();
+                            // Serial << millis() << "\t======== " << devnr << "\tdev: " << devNaam << "\tadr: " << devAdres << " ========" << endl;
+                        }
+                    }
+                    Serial << millis() << "\tH:" << ESP.getFreeHeap() << "\t======== " << devnr << "\tdev: " << devNaam << "\tadr: " << devAdres << " ========" << endl;
+                }
+
+                if (devAdres>0 && devAdres<248) //geldig
+                {
+                    SDM120M dat = dataray[stap++];
+                    // bezig = true;
+                    switch (dat.type)
+                    {
+                        case 'I':
+                            mb.readIreg(devAdres, dat.adres, regs, 2, cbWrIreg);
+                            bezig = true;
+                            break;
+                        case 'H':
+                            mb.readHreg(devAdres, dat.adres, regs, 2, cbWrIreg);
+                            bezig = true;
+                            break;
+                        default: // '-'
+                            // bezig = false;
+                            devAdres = -1; //volgend device
+                            stap = 0; 
+                            // millisslotschaduw = millisslot; //klaar met dit tijdslot. zodra weer ongelijk de volgende
+                    }
+                }
+            }
         }
     }
 
-
-    if (!bezig && !mb.slave()) 
-    {
-      bezig = true; //op voorhand
-      switch (++stap)
-      {
-        // case 0:
-        //   break;
-        case 1:
-          //30001 Voltage Volts Float 00 00
-          mb.readIreg(1, 0x00, regs, 2, cbWrIreg); 
-          break;
-        case 2:
-          //30007 Current Amps Float 00 06
-          mb.readIreg(1, 0x06, regs, 2, cbWrIreg); 
-          break;
-        case 3:
-          //30013 Active power Watts Float 00 0C
-          mb.readIreg(1, 0x0c, regs, 2, cbWrIreg); 
-          break;
-        case 4:
-          //30019 Apparent power VA Float 00 12
-          mb.readIreg(1, 0x12, regs, 2, cbWrIreg); 
-          break;
-        case 5:
-          //30025 Reactive power VAr Float 00 18
-          mb.readIreg(1, 0x18, regs, 2, cbWrIreg); 
-          break;
-        case 6:
-          //30031 Power factor None Float 00 1E
-          mb.readIreg(1, 0x1E, regs, 2, cbWrIreg); 
-          break;
-        case 7:
-          //30071 Frequency Hz Float 00 46
-          mb.readIreg(1, 0x46, regs, 2, cbWrIreg);
-          break; 
-        case 8:
-          //30073 Import active energy kWh Float 00 48
-          mb.readIreg(1, 0x48, regs, 2, cbWrIreg);
-          break; 
-        case 9:
-          //30075 Export active energy kWh Float 00 4a
-          mb.readIreg(1, 0x4a, regs, 2, cbWrIreg);
-          break; 
-        case 10:
-          //40013 Relay Pulse Width Float 00 0C
-          mb.readHreg(1, 0x0c, regs, 2, cbWrIreg);
-          break; 
-        case 11:
-          //40021 Meter ID Float 00 14
-          mb.readHreg(1, 0x14, regs, 2, cbWrIreg);
-          break; 
-        default:
-          bezig = false; //toch niet
-          if (stap>20) 
-          {
-            stap = 0; 
-            millisslotschaduw = millisslot; //klaar met dit tijdslot. zodra weer ongelijk de volgende
-          }
-      }
-    }
-  }
-  mb.task();
-  yield();
-  // delay(1000);
+    mb.task();
+    yield();
+    // delay(1000);
 }
 
 void mqtt_callback(char* topic, char* strpayload)
     {     
     bool dbg = false;
     if (dbg) Serial << millis() << "\tMQTTCB:" << topic << "=" << strpayload << endl;
-    int intWaarde = atoi(strpayload);
-    if (strcmp(topic,"cmd/setRelaisPB") == 0) 
+    long intWaarde = atoi(strpayload);
+    if (strcmp(topic,"wr/RelaisPB") == 0) 
         {
-        Serial << "MQTT:" << topic << "=" << intWaarde << endl;
-        setRelaisPB = intWaarde;
+        Serial << millis() << "\tMQTT:" << topic << "=" << intWaarde << endl;
+        wrRelaisPB = intWaarde;
+        return;
         }
         
-    if (strcmp(topic,"cmd/interval") == 0) 
+    if (strcmp(topic,"set/interval") == 0) 
         {
-        Serial << "MQTT:" << topic << "=" << intWaarde << endl;
-        interval = intWaarde;
-        if (interval < 0) interval = 0;
+        Serial << millis() << "\tMQTT:" << topic << "=" << intWaarde << endl;
+        pollInterval = intWaarde;
+        if (pollInterval < 1000) pollInterval = 1000;
+        return;
         }
         
-    if (strcmp(topic,"cmd/aktief") == 0) 
+    if (strcmp(topic,"set/aktief") == 0) 
         {
-        Serial << "MQTT:" << topic << "=" << intWaarde << endl;
+        Serial << millis() << "\tMQTT:" << topic << "=" << intWaarde << endl;
         aktief = intWaarde;
+        return;
         }
-    }
+
+
+        //devadrs <naam> (SDM120M/)<naam>/mom/adr
+    //split op '/' . Hoe?
+    char* naam = strtok(topic,"/"); //copy pointer '/' will be overwritten by '\0' by next strtok
+    char* rest = strtok(NULL,""); // get rest of string
+    if (rest != NULL)
+        {
+        // Serial << millis() << "\tNaStrtok:" << naam << ": " << rest << "=" << String(intWaarde) << endl;
+        if (strcmp(rest,"mom/adr") == 0) 
+            {
+            devadrs(naam, /*brute force*/String(intWaarde));
+            Serial << millis() << "\tDEVADRS:" << naam << " " << rest << "=" << String(intWaarde) << "\tjson: " << devadrs.json() << endl;
+            // Serial << "devadrs: " << devadrs.json() << endl;
+
+            return;
+            }
+        if (strcmp(rest,"wr/RelaisPB") == 0) // verander dev's relais pulsbreedte
+            {
+            if (strlen(strpayload)>0)
+                {
+                //TODO
+                //devadrs(naam, /*brute force*/String(intWaarde));
+                Serial << millis() << "\tnieuwRelaisPB:" << naam << ": " << rest << "=" << String(intWaarde) << endl;
+                
+                //zet in queue
+                // wrQueueRec rec = {devadrs[naam].toInt(), 'H', 0x0c, 'F', intWaarde, String(naam), String(rest) }; //of String(strpayload).toFloat
+                wrQueueRec rec = {/*0, 'x', 0x0, 'x',*/ intWaarde, String(naam), String(rest) }; //of String(strpayload).toFloat
+                wrqueue.push(&rec);
+
+                //moet eigenlijk pas als write gelukt is.
+                // pub(String(naam)+"/"+rest, (char*)""); //wis topic
+                }
+            return;
+            }
+        if (strcmp(rest,"wr/adr") == 0) // verander dev's modbusadres
+            {
+            if (intWaarde > 1 && intWaarde < 240)
+                {
+                //TODO
+                //devadrs(naam, /*brute force*/String(intWaarde));
+                Serial << millis() << "\tnieuwMBadres:" << naam << ": " << rest << "=" << String(intWaarde) << endl;
+                
+                //zet in queue
+                // wrQueueRec rec = {devadrs[naam].toInt(), 'H', 0x0c, 'F', intWaarde, String(naam), String(rest) }; //of String(strpayload).toFloat
+                wrQueueRec rec = {/*0, 'x', 0x0, 'x',*/ intWaarde, String(naam), String(rest) }; //of String(strpayload).toFloat
+                wrqueue.push(&rec);
+
+                //moet eigenlijk pas als write gelukt is.
+                // pub(String(naam)+"/"+rest, (char*)""); //wis topic
+                }
+            return;
+            }
+
+        } //rest != NULL
+        
+    } //mqtt_callback
+
