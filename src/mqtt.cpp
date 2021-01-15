@@ -98,7 +98,7 @@ void setCallback(CALLBACKSIGNATURE)
 void callback(char* topic, byte* payload, unsigned int payloadlen) 
     {
     //pas op, payload is niet met '\0' afgesloten
-    bool dbg = false;
+    bool dbg = false; 
     int intWaarde = 0;
     char strpayload[40];
     if (dbg) Serial.print("#Message arrived [");

@@ -7,7 +7,8 @@
 **/README
 lib/*/*
 !lib/*/src
-!lib/*/src/*
+!lib/*/src/**
 include/AP*
 !include/AP-example.h
 **/*.bak
+!src

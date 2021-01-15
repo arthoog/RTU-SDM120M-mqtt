@@ -136,7 +136,7 @@ bool cbWrIreg(Modbus::ResultCode event, uint16_t transactionId, void* data)
     bezig = false;
     return true;
     }
-
+ 
 //---------------------------------------------------------------
 bool cbWriteHregPW(Modbus::ResultCode event, uint16_t transactionId, void* data) 
 {
