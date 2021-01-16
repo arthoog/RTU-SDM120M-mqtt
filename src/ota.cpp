@@ -4,10 +4,10 @@
 // #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 
-void ota_init()
+void ota_setup(char* hostname)
 {
     // ArduinoOTA.setPort(8266);                        // Port defaults to 8266
-    ArduinoOTA.setHostname("SDM120M");                  // Hostname defaults to esp8266-[ChipID]
+    ArduinoOTA.setHostname(hostname);                   // Hostname defaults to esp8266-[ChipID]
     //ArduinoOTA.setPassword((const char *)"geheim");   // No authentication by default
     ArduinoOTA.onStart([]() { Serial.println("Start"); });
     ArduinoOTA.onEnd([]()   { Serial.println("\nEnd"); });

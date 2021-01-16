@@ -1,2 +1,2 @@
-void ota_init(void);
+void ota_setup(char* hostname);
 void ota_loop(void);
