@@ -21,11 +21,9 @@ int devAdres    = -1; //16 bit, u8 nodig maar dan is -1 = ongeldig
 int stap        = 0;
 int mberror     = 0;
 
-int wrRelaisPB  = -1;
-
 //bool coils[20];
-uint16_t rdregs[16];    //Lezen.er worden er maar 2 gebruikt
-uint16_t wrregs[2];     //voor schrijfakties
+uint16_t rdregs[2];     // Lezen.er worden er maar 2 gebruikt
+uint16_t wrregs[2];     // voor schrijfakties
 
 byte  aktief = 1;
 long pollInterval = 10000;
@@ -208,7 +206,7 @@ void sdm120m_setup(const char* mqtt_server)
 {
     //Modbus spul
     #if defined(ESP8266)
-    S.begin(2400, SWSERIAL_8N1);
+    S.begin(2400, SWSERIAL_8N1/*,5,4,false,128,128*11*/);
     //mb.begin(&S);
     mb.begin(&S, /*pen 2 voor transmit enable*/ 2, /*direct*/true);
     #elif defined(ESP32)
