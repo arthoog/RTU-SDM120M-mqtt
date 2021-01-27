@@ -47,12 +47,17 @@ void setup()
 }
 
 //---------------------------------------------------------------
-void loop() 
+void rest_loop()
 {
     ota_loop();
     // in sdm120m_loop()   mqtt_loop();
-    sdm120m_loop();
+    // sdm120m_loop();
     yield();
+
+}
+void loop() //voor arduino
+{
+        sdm120m_loop(rest_loop);
 }
 
 

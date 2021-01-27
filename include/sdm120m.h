@@ -1,5 +1,5 @@
 void sdm120m_setup(const char* mqtt_server);
-void sdm120m_loop();
+void sdm120m_loop(void(*restloopers)(void));
 
 //30001 Voltage Volts Float 00 00
 //30007 Current Amps Float 00 06
