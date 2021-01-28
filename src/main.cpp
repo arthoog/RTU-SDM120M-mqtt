@@ -18,19 +18,13 @@
 //===============================================================
 const char* mqtt_server = "192.168.1.40"; //elite";
 
-// boolean dbg = false;
-
 //===============================================================
-void setup() 
-{
-    Serial.begin(115200);
-    Serial.println("Booting");
-    //Wifi spul
+void wifi_setup() {
+    delay(10);
     WiFi.mode(WIFI_STA);
     Serial.println();
     Serial.print("#Connecting to ");
     Serial.print(ssid);
-
     WiFi.begin(ssid, password);
     while (WiFi.waitForConnectResult() != WL_CONNECTED) 
     {
@@ -38,10 +32,18 @@ void setup()
         delay(10000);
         ESP.restart();
     }
-    Serial.println("Ready");
+    Serial.println("#WiFi connected");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
+}
 
+//===============================================================
+void setup() 
+{
+    Serial.begin(115200);
+    Serial.println("Booting");
+ 
+    wifi_setup();
     ota_setup("SDM120M");
     sdm120m_setup(mqtt_server);
 }
@@ -57,7 +59,7 @@ void rest_loop()
 }
 void loop() //voor arduino
 {
-        sdm120m_loop(rest_loop);
+    sdm120m_loop(rest_loop);
 }
 
 

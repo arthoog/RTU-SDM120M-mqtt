@@ -6,6 +6,12 @@
 #include <cppQueue.h>
 #include <Streaming.h>
 
+//===============================================================
+const char* mqtt_user = "";
+const char* mqtt_passwd = "";
+const char* mqtt_base_topic = "SDM120M";
+const char* mqtt_sub_topic = "SDM120M/#";
+
 //------forwards------------------------------------------------
 // void mqtt_callback(char* topic, char* strpayload);
 // float floatfromregs();
@@ -264,13 +270,10 @@ void mqtt_callback(char* topic, char* strpayload)
 
 void sdm120m_setup(const char* mqtt_server)
 {
-    //modbus
     mbclient_setup(2400, 4, 5/*, 2, true*/);
-    //mqtt
     Serial << "#mqttserver=" << mqtt_server << endl;
     setCallback(mqtt_callback);
-    mqtt_setup(mqtt_server, /*user*/ "", /*passw*/ "", /*basetopic*/"SDM120M", /*abbo*/"SDM120M/#");
-
+    mqtt_setup(mqtt_server, mqtt_user, mqtt_passwd, mqtt_base_topic, mqtt_sub_topic);
 }
 
 void sdm120m_loop(void(*restloopers)(void))
